@@ -2,6 +2,8 @@
 
 Documento de trabajo. Guardar en `C:\drakkar\` junto a `DECISIONES.md`.
 
+**Estado:** modelos escritos, migrados y verificados en `drakkar_dev` (2026-08-19).
+
 ---
 
 ## 1. Decisiones que sostienen este diseño
@@ -52,6 +54,7 @@ Producto (catálogo de la empresa)
 | `empresa` | FK → Empresa | `related_name='locales'` |
 | `nombre` | CharField(150) | |
 | `direccion` | CharField(255) | |
+| `slug` | SlugField(60) | único en todo el sistema — es la URL (ver §8.1) |
 | `activo` | Boolean | |
 | **Configuración operativa** | | |
 | `maneja_vencimiento` | Boolean | si está en False, el tema no aparece en ninguna pantalla |
@@ -80,6 +83,15 @@ Producto (catálogo de la empresa)
 | `creado_en` / `actualizado_en` | DateTime | |
 
 **Identidad:** el `id` interno. Nunca cambia, nunca lo ve el usuario, y de él cuelga todo el historial.
+
+**Cuidado con los dos campos que suenan igual:**
+
+- `controla_vencimiento` (en `Producto`): ¿esta **cosa** vence? La leche sí, el
+  detergente no. No cambia nunca.
+- `fecha_vencimiento` (en `Lote`): ¿cuándo vence **este envase** que tengo? Del
+  mismo producto puedo tener tres tandas con tres fechas distintas.
+
+La regla va arriba, el dato va abajo.
 
 ### CodigoBarra
 
@@ -210,7 +222,116 @@ puede cambiar cualquier switch después.
 
 ---
 
-## 7. Decisiones pendientes
+## 7. Reparto en apps de Django
+
+| App | Modelos | Qué responde |
+|---|---|---|
+| `usuarios` | `Usuario` | quién entra al sistema |
+| `empresas` | `Empresa`, `Local` | quién es el cliente y dónde trabaja |
+| `productos` | `Producto`, `CodigoBarra` | qué cosas conoce la empresa |
+| `stock` | `ProductoLocal`, `Lote` | cuánto hay, dónde y a qué precio |
+
+**Por qué `stock` va separado de `productos`:** el nombre de cada carpeta dice
+exactamente lo que tiene. Además, cuando lleguen Movimientos (Día 15) y el
+submódulo de Diferencias (D-003), esos modelos ya tienen su casa natural y no
+hay que volver a discutir dónde van.
+
+`Lote` no es parte de la ficha del producto: es el registro de lo que
+físicamente hay en un local. Por eso vive en `stock`.
+
+**`usuarios` existe desde hoy** aunque el Día 9 sea el de usuarios. Ver D-011:
+en Django el modelo de usuario se declara antes del primer `migrate`, siempre.
+
+---
+
+## 8. Cambios al pasar de diseño a código
+
+### 8.1 `Local.slug` — campo nuevo
+
+No estaba en la tabla de campos original, pero ARQ-001 lo exige: un local =
+una URL (`app.drakkar.cl/mariamarket1`). El slug es único en **todo el
+sistema**, no por empresa, porque la URL es global.
+
+### 8.2 `on_delete=PROTECT` como norma
+
+Django obliga a decidir qué pasa con las filas hijas cuando se borra la madre.
+La norma del proyecto es `PROTECT`: la base se **niega** a borrar una empresa
+con locales, un local con productos o un producto con stock.
+
+Es coherente con D-003: acá no se borra, se desactiva. El único `CASCADE` es
+`CodigoBarra` → `Producto`, porque un código sin producto no significa nada.
+
+Consecuencia práctica: para limpiar datos hay que ir de abajo hacia arriba —
+lotes, productos-local, productos, locales, empresas.
+
+### 8.3 Reglas de negocio en la base, no solo en el formulario
+
+Un formulario se puede saltar: por el admin de Django, por un script de carga,
+por el import de Excel. La base no. Tres reglas quedaron como `constraints`
+(ver D-012):
+
+| Constraint | Qué impide |
+|---|---|
+| `local_lotes_requiere_vencimiento` | manejar lotes con vencimientos apagados |
+| `producto_padre_y_factor_juntos` | un producto padre sin factor de conversión (o al revés) |
+| `un_solo_codigo_principal_por_producto` | dos códigos principales en la misma ficha |
+
+Más las unicidades ya previstas: `(empresa, codigo)` en `CodigoBarra` y
+`(producto, local)` en `ProductoLocal`. Se agregó también `(empresa, nombre)`
+único en `Local`.
+
+### 8.4 Orden FEFO explícito, con los sin fecha al final
+
+`Lote.Meta.ordering` usa `fecha_vencimiento` ascendente con `nulls_last=True`.
+
+**Por qué importa:** un lote sin fecha significa "no vence", no "vence ya". Si
+quedara primero, el sistema vendería primero lo que no tiene ninguna urgencia y
+dejaría vencer lo demás.
+
+### 8.5 El índice de vencimientos es parcial
+
+`lote_venc_activos_idx` indexa solo los lotes con `activo=True` y
+`cantidad > 0`. Es el índice del reporte "qué vence en N días". Al año de uso,
+la mayoría de los lotes van a estar agotados: no tiene sentido que el índice
+cargue con ellos.
+
+---
+
+## 9. Verificación hecha
+
+Cargando datos de ejemplo en `drakkar_dev`, la base rechazó las cinco
+operaciones que debía rechazar:
+
+- local con lotes y sin vencimientos
+- código de barra repetido dentro de la misma empresa
+- segundo código principal en un producto
+- el mismo producto dos veces en el mismo local
+- producto con padre pero sin factor de conversión
+
+Y se comprobó lo que debía funcionar:
+
+- stock total calculado con `Sum()` **en la base**, no recorriendo listas
+- orden FEFO correcto, con el lote sin fecha al final
+- cantidades guardadas con tres decimales (`4.000`, `6.000`)
+
+Cuando una constraint salta, PostgreSQL informa su **nombre**. Por eso cada una
+lleva un nombre descriptivo: dentro de seis meses, ese nombre es toda la pista
+disponible para entender qué se rompió.
+
+---
+
+## 10. Pendientes que salieron de este día
+
+- [ ] Crear el lote implícito automáticamente cuando el local no maneja lotes
+      (hoy hay que crearlo a mano; corresponde al flujo de ingreso, Día 15)
+- [ ] Método o propiedad para el stock total de un `ProductoLocal`
+- [ ] Validar que los códigos internos empiecen con `2`
+- [ ] Registrar las apps en el admin de Django (Día 13)
+- [ ] Tests automáticos de estas reglas (Día 6)
+
+---
+
+## 11. Decisiones pendientes (de negocio)
 
 - [ ] Precio base de la suscripción y precio del usuario adicional
 - [ ] Tramos de descuento por cantidad de locales (marginales, nunca sobre el total)

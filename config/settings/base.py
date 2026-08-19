@@ -28,6 +28,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "usuarios",
+    "empresas",
+    "productos",
+    "stock",
     # Módulos de Drakkar — se agregan a medida que se creen
 ]
 
@@ -90,3 +94,5 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+AUTH_USER_MODEL = "usuarios.Usuario"

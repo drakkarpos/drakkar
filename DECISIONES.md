@@ -253,6 +253,94 @@ en el servidor porque "es un cambio chico".
   deben estar disponibles. La decisión se toma cuando Windows empiece a estorbar,
   no antes.
 
+## D-011 — El modelo de usuario propio se declara antes del primer `migrate`
+
+**Fecha:** 2026-08-19
+
+**Decisión:** Drakkar usa un modelo de usuario propio, `usuarios.Usuario`,
+heredado de `AbstractUser`. Se declara con `AUTH_USER_MODEL` **antes de la
+primera migración de la vida del proyecto**, aunque todavía no tenga ningún
+campo adicional. Los campos que necesite (empresa, rol, teléfono) se agregan
+después como migraciones normales.
+
+**Contexto:** El plan de 30 días ubicaba el usuario personalizado en el Día 9.
+Pero el Día 3, al configurar PostgreSQL, se corrió `migrate` para comprobar la
+conexión. Ese comando creó las tablas internas de Django —entre ellas
+`auth_user`, los permisos y el log del admin— y dejó anotado en
+`django_migrations` que el admin ya se había construido apoyado en el usuario
+de Django.
+
+Al declarar `AUTH_USER_MODEL` el Día 4, Django se negó a migrar:
+
+```
+InconsistentMigrationHistory: Migration admin.0001_initial is applied
+before its dependency usuarios.0001_initial
+```
+
+No es un error del código: es la base diciendo que el admin quedó apoyado en
+una tabla de usuarios distinta de la declarada. Django se planta antes de
+tocar nada, y hace bien: seguir adelante dejaría permisos apuntando a una
+tabla y usuarios en otra.
+
+**Alternativas descartadas:**
+
+- *Seguir usando `auth.User` de Django:* funciona hoy, pero Drakkar es
+  multitenant. Tarde o temprano el usuario necesita saber a qué empresa
+  pertenece y qué rol tiene. Sin modelo propio, esos datos van a parar a una
+  tabla satélite y toda consulta de permisos pasa a requerir un join extra.
+- *Dejarlo para el Día 9 como decía el plan:* implicaba borrar la base y
+  migrar de nuevo igual, solo que con más código encima y más riesgo de que
+  para entonces ya hubiera datos de prueba que perder.
+- *Crear el usuario con todos sus campos hoy:* mezcla dos días de trabajo. Lo
+  único urgente es que la tabla exista con nuestro nombre; el contenido no
+  tiene apuro.
+
+**Consecuencias:**
+
+- Hubo que borrar y recrear `drakkar_dev`. Sin datos reales, el costo fue
+  nulo — de ahí que convenga resolverlo lo antes posible.
+- La regla general del proyecto: **en Django, el modelo de usuario se declara
+  antes del primer `migrate`, siempre.** No "antes de necesitarlo".
+- El Día 9 se hace igual y completo: ahí se le agregan campos y lógica. Lo de
+  hoy solo reservó el lugar.
+- `usuarios` es la primera app del proyecto en migrarse. Cualquier app futura
+  que referencie al usuario lo hace con `settings.AUTH_USER_MODEL`, nunca
+  importando el modelo directamente.
+
+---
+
+## D-012 — Las reglas de negocio duras viven en la base de datos
+
+**Fecha:** 2026-08-19
+
+**Decisión:** Las reglas que nunca pueden violarse se declaran como
+`constraints` del modelo, no solo como validaciones de formulario. Al Día 4
+son: un local no puede manejar lotes sin manejar vencimientos; un producto no
+puede tener padre sin factor de conversión; un producto no puede tener dos
+códigos de barra principales.
+
+**Contexto:** Un formulario valida solo cuando alguien usa ese formulario. Los
+datos entran a Drakkar por al menos cuatro caminos: la pantalla del usuario, el
+admin de Django, la carga inicial vía Excel y los scripts de mantención. Una
+regla escrita solo en el formulario protege uno de esos cuatro.
+
+**Alternativas descartadas:**
+
+- *Validar solo en el formulario:* la carga masiva desde Excel es justamente
+  el camino por donde entran más datos y con menos control. Es el peor lugar
+  para no tener red.
+- *Validar solo en `Model.clean()`:* mejor que el formulario, pero Django no
+  ejecuta `clean()` en `bulk_create()` ni en un `update()` masivo.
+
+**Consecuencias:**
+
+- Un dato inconsistente falla al escribirse, con un error claro, en vez de
+  quedar guardado y aparecer meses después como un comportamiento raro.
+- Las validaciones de formulario siguen existiendo: son las que dan el mensaje
+  amable al usuario. La constraint es la última línea, no la primera.
+- Cada constraint lleva un `name` descriptivo, porque ese nombre es lo que
+  aparece en el error de PostgreSQL cuando salta.
+
   ## ARQ-001: Arquitectura de múltiples locales por cliente
 
 **Fecha:** [Hoy]  
