@@ -252,3 +252,48 @@ en el servidor porque "es un cambio chico".
   recomendable: es lenta para editar y le resta recursos a las dos instancias que
   deben estar disponibles. La decisión se toma cuando Windows empiece a estorbar,
   no antes.
+
+  ## ARQ-001: Arquitectura de múltiples locales por cliente
+
+**Fecha:** [Hoy]  
+**Estado:** DECIDIDO  
+**Impacto:** Alto (determina URL, permisos, aislamiento de datos)
+
+---
+
+### Problema
+Un cliente (ej. María) puede tener múltiples almacenes/locales. ¿Cómo accede a cada uno?
+¿Una URL por local? ¿Un selector dentro de una URL? ¿Cómo evitar que un vendedor entre por error al almacén equivocado?
+
+### Alternativas consideradas
+
+**Opción A: Un local por URL (elegida)**
+- Cada local = URL propia: `app.drakkar.cl/mariamarket1`, `app.drakkar.cl/mariamarket2`
+- María (dueña) puede acceder a ambas URLs.
+- Vendedores acceden solo a la URL/local que les corresponde.
+- Protección: tabla `UsuarioAccesoLocal` valida qué locales puede ver cada usuario.
+
+**Opción B: Múltiples locales en una URL**
+- Una sola URL con selector de local dentro: `app.drakkar.cl/mariamarket` + dropdown.
+- Más sofisticado, María maneja dos locales en un login.
+- Mayor complejidad de codificación.
+
+### Decisión
+**Opción A: Un local por URL + tabla de permisos `UsuarioAccesoLocal`**
+
+### Razonamiento
+1. **Simplicidad:** Cada local es una "entrada" independiente. Menos lógica especial.
+2. **Seguridad clara:** Si Juan intenta `app.drakkar.cl/mariamarket2` pero no tiene permiso, Django lo bloquea (403).
+3. **Para el dueño:** María abre dos pestañas, una por cada local. Cómodo.
+4. **Para vendedores:** Entran a su local, no pueden "errar" en el otro.
+
+### Implicaciones
+- **URLs:** Cada local requiere su propia URL (subdominio o path).
+- **Permisos (Día 10-11):** Implementar `UsuarioAccesoLocal(usuario, local, rol)`.
+- **Validación (Día 24):** Tests para garantizar que nadie ve datos de locales ajenos.
+- **DNS/Cloudflare:** Configurar wildcard o múltiples subdominos.
+
+### Nota técnica
+Django siempre filtra por `local_id` en las consultas. Si un usuario no tiene permiso en `UsuarioAccesoLocal`, no accede a la URL; si accede, Django filtra sus datos por su `local_id` asignado.
+
+---
