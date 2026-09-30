@@ -4,7 +4,9 @@ config/settings/prod.py
 Configuración de producción: Raspberry Pi y VPS.
 """
 
-from .base import *
+import os
+
+from .base import *  # noqa: F403
 
 DEBUG = False
 

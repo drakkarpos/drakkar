@@ -341,7 +341,59 @@ regla escrita solo en el formulario protege uno de esos cuatro.
 - Cada constraint lleva un `name` descriptivo, porque ese nombre es lo que
   aparece en el error de PostgreSQL cuando salta.
 
-  ## ARQ-001: Arquitectura de múltiples locales por cliente
+## D-013 — Dos niveles de alta de usuarios: yo doy de alta clientes, el cliente da de alta su gente
+
+**Fecha:** 2026-08-19
+
+**Decisión:** El alta de usuarios ocurre en dos niveles distintos, con
+herramientas distintas.
+
+*Nivel superusuario (yo).* Doy de alta a un cliente nuevo a mano, desde el
+panel de administración: creo la Empresa, sus Locales, la Suscripción y **un**
+usuario administrador. Es el acto de entregar la llave.
+
+*Nivel administrador del cliente.* El cliente crea, modifica y desactiva a su
+propia gente —vendedores, supervisores— desde una pantalla propia dentro de la
+aplicación, limitada a su empresa y a sus locales.
+
+La regla en una línea: **yo administro clientes, el cliente administra su gente.**
+
+**Contexto:** Un local rota personal. Si cada alta de cajero pasara por mí, me
+convierto en el cuello de botella de la operación diaria de todos mis clientes,
+y el producto deja de escalar apenas haya veinte. Al mismo tiempo, el alta de
+un cliente nuevo involucra plata, contrato y configuración inicial: no puede
+ser automática mientras el negocio sea chico.
+
+**Alternativas descartadas:**
+
+- *Que yo cree todos los usuarios:* no escala y además me hace responsable de
+  un dato que no manejo — quién trabaja hoy en el local de otra persona.
+- *Auto-registro del cliente en la web:* escala sin que yo intervenga, pero
+  exige cobro automático, verificación de correo y defensa contra registros
+  falsos. Es mucho trabajo para resolver un problema que todavía no tengo.
+  Se reevalúa cuando el alta manual empiece a molestar.
+- *Que el cliente use el admin de Django:* desde ahí, con permisos
+  suficientes, se ven **todas** las empresas. Es una herramienta de dueño del
+  sistema, no de cliente.
+
+**Consecuencias:**
+
+- El admin de Django es **mi** panel interno. Ningún cliente entra ahí.
+- El cliente necesita una pantalla propia de gestión de usuarios (Día 13) que
+  solo le permita: crear usuarios de su empresa, asignarles sus locales,
+  elegir rol de un menú acotado —nunca superusuario— y **desactivar**, no
+  borrar. El historial de ventas tiene que seguir explicándose.
+- `Usuario` necesita saber a qué empresa pertenece (Día 9). Esa pertenencia es
+  la barrera que impide que un administrador cree usuarios en otra empresa.
+- La suscripción incluye N usuarios y cobra por cada adicional. Por lo tanto
+  la pantalla del cliente tiene que **contar usuarios activos y bloquear al
+  llegar al tope**, ofreciendo contratar más. Definir N y el precio del
+  adicional sigue pendiente.
+- Un usuario desactivado no cuenta contra el tope. Si contara, el cliente
+  pagaría para siempre por gente que ya no trabaja ahí — y el incentivo sería
+  borrar el historial.
+
+## ARQ-001: Arquitectura de múltiples locales por cliente
 
 **Fecha:** [Hoy]  
 **Estado:** DECIDIDO  

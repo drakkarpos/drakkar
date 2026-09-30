@@ -22,7 +22,7 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    "config.admin.DrakkarAdminConfig",
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

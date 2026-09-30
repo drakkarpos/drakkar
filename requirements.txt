@@ -1,8 +1,56 @@
-asgiref==3.12.1
+# requirements.txt — Drakkar
+#
+# Este archivo es la FUENTE DE VERDAD del entorno. Si acá falta algo, el
+# proyecto no se puede recrear en otra máquina — y "otra máquina" incluye la
+# Raspberry Pi, el VPS y tu propio computador después de un formateo.
+#
+# Las versiones están fijadas con == a propósito. Sin fijarlas, instalar en
+# marzo y en septiembre puede traer versiones distintas, y el error aparece
+# en el servidor, nunca en desarrollo.
+#
+# Para recrear el entorno desde cero:
+#     python -m venv venv
+#     venv\Scripts\activate
+#     pip install -r requirements.txt
+#
+# Para regenerar este archivo después de instalar algo nuevo:
+#     pip freeze > requirements.txt
+# ...y volver a poner estos comentarios. pip freeze los borra.
+
+# ---------------------------------------------------------------------------
+# DIRECTAS — las instalé yo a propósito. Estas son las que se actualizan.
+# ---------------------------------------------------------------------------
+
 Django==5.2.17
+# El framework. Versión LTS: soporte largo, menos sobresaltos.
+
 psycopg==3.3.4
+# El conector a PostgreSQL. Versión 3, la actual (psycopg2 es la vieja).
+
 psycopg-binary==3.3.4
+# Los binarios ya compilados de psycopg. Evita necesitar compilador de C
+# al instalar. OJO EN LA RASPBERRY PI: puede no haber binario para ARM y
+# haya que instalar psycopg[c] o las cabeceras de desarrollo de PostgreSQL.
+# Verificar el Día 29.
+
 python-dotenv==1.2.3
+# Lee el archivo .env y carga sus variables. Es lo que hace posible que los
+# secretos vivan fuera del código (D-009).
+
+# ---------------------------------------------------------------------------
+# TRANSITIVAS — no las pedí yo, las trajeron las de arriba.
+# No se actualizan a mano: se acomodan solas cuando se actualiza su padre.
+# ---------------------------------------------------------------------------
+
+asgiref==3.12.1
+# Lo trae Django. Capa para el manejo asíncrono.
+
 sqlparse==0.6.0
+# Lo trae Django. Formatea SQL, se usa en las migraciones y el debug.
+
 typing_extensions==4.16.0
+# Lo trae psycopg.
+
 tzdata==2026.3
+# Lo trae Django. Base de datos de zonas horarias — necesaria en Windows,
+# que no trae la del sistema. Sostiene TIME_ZONE = 'America/Santiago'.
