@@ -22,3 +22,7 @@ db.sqlite3
 .vscode/
 .idea/
 Thumbs.db
+# Backups de base de datos: NUNCA van a Git (contienen datos de clientes)
+*.sql
+*.dump
+/backups/
