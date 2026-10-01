@@ -166,8 +166,10 @@ archivo — y el repositorio puede cambiar de manos o volverse público.
   GitHub: viven únicamente en el servidor.
 - Cada entorno tiene su propia contraseña de base de datos. Filtrar una no
   compromete a las demás.
-- Hay que documentar qué variables necesita un `.env` para que montar un
-  servidor nuevo no dependa de la memoria.
+- ~~Hay que documentar qué variables necesita un `.env` para que montar un
+  servidor nuevo no dependa de la memoria.~~ **RESUELTO el Día 5:** la
+  plantilla `.env.example` está en el repositorio, con todas las variables
+  comentadas y sin ningún valor real.
 
 ---
 
@@ -437,3 +439,137 @@ Un cliente (ej. María) puede tener múltiples almacenes/locales. ¿Cómo accede
 Django siempre filtra por `local_id` en las consultas. Si un usuario no tiene permiso en `UsuarioAccesoLocal`, no accede a la URL; si accede, Django filtra sus datos por su `local_id` asignado.
 
 ---
+---
+
+## D-014 — `requirements.txt` con el entorno completo, separando lo directo de lo heredado
+
+**Fecha:** 2026-09-30
+
+**Decisión:** `requirements.txt` lista **todos** los paquetes instalados con su
+versión exacta (`pip freeze`), pero dividido en dos secciones comentadas:
+
+- **Directas:** las que se instalaron a propósito (Django, psycopg,
+  psycopg-binary, python-dotenv). Son las únicas que se actualizan a mano.
+- **Transitivas:** las que llegaron arrastradas por las anteriores (asgiref,
+  sqlparse, typing_extensions, tzdata). Se acomodan solas al actualizar su
+  padre.
+
+Complementa a `.env.example`, que documenta las variables que cada servidor
+necesita escribir a mano. Entre los dos, un servidor nuevo se monta sin
+depender de la memoria de nadie.
+
+**Contexto:** `pip freeze` no distingue lo que uno pidió de lo que vino de
+arrastre. Sin esa distinción, dentro de unos meses no se sabe cuáles de los
+ocho paquetes se pueden tocar al actualizar Django y cuáles se acomodan solos.
+
+**Alternativas descartadas:**
+
+- *Listar solo las directas:* más legible, pero dos instalaciones hechas en
+  fechas distintas pueden traer versiones distintas de las transitivas. En
+  producción eso significa que la Pi y la máquina de desarrollo podrían no ser
+  idénticas, y el error aparecería solo en el servidor.
+- *`pip-tools` (requirements.in + requirements.txt generado):* es lo correcto
+  en un equipo, pero agrega una herramienta y un paso a cada instalación.
+  Los comentarios resuelven hoy el mismo problema sin costo.
+
+**Consecuencias:**
+
+- **`pip freeze > requirements.txt` borra los comentarios.** Después de
+  regenerar el archivo hay que volver a ponerlos. Está advertido dentro del
+  propio archivo.
+- El entorno se recrea con `python -m venv venv` +
+  `pip install -r requirements.txt`, y eso **se verificó borrando el venv por
+  completo el Día 5**. La lista no miente. Conviene repetir el ejercicio cada
+  vez que se instale algo nuevo: es la única forma de que la promesa siga
+  siendo cierta.
+- **Pendiente para el despliegue (Día 29):** `psycopg-binary` puede no tener
+  versión compilada para el procesador ARM de la Raspberry Pi. Si la
+  instalación falla allá, las salidas son `psycopg[c]` o instalar antes las
+  cabeceras de desarrollo de PostgreSQL (`libpq-dev`, `python3-dev`). Es el
+  primer punto a revisar si `pip install` falla en la Pi.
+
+---
+
+## D-015 — Los imports de los settings son explícitos en cada archivo
+
+**Fecha:** 2026-09-30
+
+**Decisión:** Cada archivo de `config/settings/` importa lo que usa, aunque
+`from .base import *` ya lo estuviera trayendo.
+
+**Contexto:** `prod.py` usaba `os.environ` sin importar `os`. Funcionaba
+porque `import *` arrastra todos los nombres públicos de `base.py`, incluidos
+los módulos que ese archivo importó.
+
+**Alternativas descartadas:**
+
+- *Dejarlo como estaba:* funciona hoy. El problema es cómo falla: el día que
+  alguien ordene los imports de `base.py` y saque `os` de ahí, **producción
+  deja de arrancar** — y el archivo que se rompe no es el que se editó. El
+  error aparece lejos de su causa.
+
+**Consecuencias:**
+
+- `prod.py` declara `import os` al principio.
+- `from .base import *` lleva `# noqa: F403` para que los revisores
+  automáticos no lo marquen: el asterisco acá es intencional, es el mecanismo
+  de herencia entre settings (D-008).
+- Regla general: si un archivo usa un nombre, ese archivo lo importa. No se
+  depende de lo que otro haya importado.
+
+---
+
+## D-016 — Una sola Pi sirve a todos los locales; qué pasa sin internet queda abierto
+
+**Fecha:** 2026-10-01
+
+**Decisión:** La fase Raspberry Pi usa **una sola Pi** como servidor para todos los
+locales, no una por local. Los locales llegan a ella por internet a través del
+túnel de Cloudflare (D-010, Día 29).
+
+```
+Local 1 ─┐
+Local 2 ─┼── internet ──► Cloudflare Tunnel ──► UNA Pi
+Local 3 ─┘
+```
+
+Es la consecuencia natural del diseño multitenant: una base de datos, varios
+`Local`, cada uno viendo solo lo suyo (ARQ-001, D-024).
+
+**Contexto:** El modelo quedó implícito en el diseño pero nunca escrito, y es el
+tipo de supuesto que se malentiende justo cuando importa — al cotizarle a un
+cliente, o al decidir qué hardware comprar.
+
+**Consecuencias:**
+
+- **Los locales no necesitan hardware de Drakkar.** Necesitan un computador con
+  navegador y conexión a internet. Eso abarata enormemente la propuesta.
+- **El cable de red es para la Pi**, en su ubicación, no para cada local. El WiFi
+  en el servidor agrega un punto de falla que afecta a todos los clientes a la vez.
+- **La Pi es un punto único de fallo.** Si se corta la luz o internet donde está,
+  los locales dejan de vender **todos al mismo tiempo**. No es un error de diseño:
+  es el precio de la fase Pi, y la razón de la migración a VPS (D-004). Un
+  datacenter tiene generador y conexión redundante; una casa no.
+- Mitigaciones baratas mientras dure la fase Pi: **UPS** para la Pi y el router
+  (consumen poco, un UPS chico da horas), y **cable en vez de WiFi**.
+
+**PENDIENTE GRANDE — qué pasa en el local cuando no hay internet**
+
+Hoy la respuesta es: no pueden vender nada. Ni cobrar, ni consultar un precio.
+
+En una farmacia o un minimarket eso pesa distinto que en una oficina: hay gente
+en la fila esperando.
+
+Opciones, de menos a más trabajo:
+
+1. *Se asume el riesgo.* El local vende a mano y registra después. Cero trabajo
+   de desarrollo, pero el cliente lo vive como una caída del sistema.
+2. *Modo de solo lectura en caché.* Al menos consultar precios y stock sin
+   conexión. Trabajo medio.
+3. *Venta sin conexión con sincronización posterior.* La pantalla de venta
+   funciona sola y sube las ventas al recuperar la conexión. Mucho trabajo, y
+   abre la pregunta difícil: qué pasa si dos locales venden el mismo stock
+   mientras están desconectados.
+
+No hay que resolverlo ahora, **pero condiciona el diseño de las ventas
+(Días 16-17)**. Decidir antes de empezar ese módulo, no después.
